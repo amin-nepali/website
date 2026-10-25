@@ -2459,9 +2459,34 @@
         });
       }
 
+      function showDemoRecipient(query, baseList) {
+        if (baseList.length) {
+          renderResults(baseList);
+          return;
+        }
+        const typed = String(query || '').trim();
+        const username = typed.replace(/^[$@]+/, '');
+        if (!username) {
+          renderResults(baseList);
+          return;
+        }
+        const isTikTokHandle = typed.startsWith('@');
+        renderResults([{
+          id: `demo-${username.toLowerCase()}`,
+          name: typed,
+          cashtag: `${isTikTokHandle ? '@' : '$'}${username}`,
+          avatar: '',
+          color: '#666',
+          platform: isTikTokHandle ? 'tiktok' : 'cashapp'
+        }]);
+      }
+
       async function enrichWithCashAppProfile(query, baseList) {
         const cashtag = (query || '').replace(/^\$+/, '').trim();
-        if (cashtag.length < 2) return;
+        if (cashtag.length < 2) {
+          showDemoRecipient(query, baseList);
+          return;
+        }
 
         const lookupToken = ++m2SearchLookupToken;
         try {
@@ -2471,6 +2496,8 @@
           if (!(result && result.success && result.data)) {
             if (cashtag.length >= 3) {
               enrichWithTikTokProfile(cashtag, baseList);
+            } else {
+              showDemoRecipient(query, baseList);
             }
             return;
           }
@@ -2502,14 +2529,17 @@
           if (cashtag.length >= 3) {
             enrichWithTikTokProfile(cashtag, baseList);
           } else {
-            renderResults(baseList);
+            showDemoRecipient(query, baseList);
           }
         }
       }
 
       async function enrichWithTikTokProfile(query, baseList, forceTop) {
         const username = (query || '').replace(/^[@$]+/, '').trim();
-        if (username.length < 3) return;
+        if (username.length < 3) {
+          showDemoRecipient(query, baseList);
+          return;
+        }
 
         const lookupToken = ++m2SearchLookupToken;
         try {
@@ -2517,7 +2547,7 @@
           const result = await response.json();
           if (lookupToken !== m2SearchLookupToken) return;
           if (!(result && result.success && result.data)) {
-            renderResults(baseList);
+            showDemoRecipient(query, baseList);
             return;
           }
 
@@ -2549,13 +2579,16 @@
           renderResults([tiktokProfile].concat(dedupedBase));
         } catch (error) {
           if (lookupToken !== m2SearchLookupToken) return;
-          renderResults(baseList);
+          showDemoRecipient(query, baseList);
         }
       }
 
       async function enrichBothProfiles(query, baseList) {
         const username = (query || '').replace(/^[$@]+/, '').trim();
-        if (username.length < 3) return;
+        if (username.length < 3) {
+          showDemoRecipient(query, baseList);
+          return;
+        }
         const myToken = ++m2SearchLookupToken;
         const encodedUsername = encodeURIComponent(username);
         const paypalAvatar = `https://unavatar.io/paypal/${encodedUsername}`;
@@ -2630,7 +2663,7 @@
         }
 
         if (!liveProfile) {
-          renderResults(baseList);
+          showDemoRecipient(query, baseList);
           return;
         }
         const key = (liveProfile.cashtag || liveProfile.name)
