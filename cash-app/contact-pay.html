@@ -1442,7 +1442,12 @@
         function setTypedAvatarMode(mode) {
           // PayPal avatars are unverified images; direct profile images use cover sizing.
           typedRecipientAvatar.dataset.avatarMode = mode;
-          if (mode === 'tiktok' || mode === 'cashapp' || mode === 'paypal') {
+          if (
+            mode === 'tiktok' ||
+            mode === 'cashapp' ||
+            mode === 'paypal' ||
+            mode === 'demo'
+          ) {
             // Direct avatar images - use cover sizing
             typedRecipientAvatar.style.backgroundSize = "cover";
             typedRecipientAvatar.style.backgroundPosition = "center";
@@ -1459,6 +1464,7 @@
             isTikTok = false,
             isCashApp = false,
             isPayPal = false,
+            isDemo = false,
             fallbackToTikTok = false,
             fallbackUsername = "",
           } = options;
@@ -1470,20 +1476,21 @@
               ? 'cashapp'
               : isPayPal
                 ? 'paypal'
-                : 'cashtag';
+                : isDemo
+                  ? 'demo'
+                  : 'cashtag';
           setTypedAvatarMode(mode);
           typedRecipientAvatar.style.backgroundImage = "none";
           typedRecipientAvatar.textContent = fallbackInitial;
           if (!url) return;
-          if (isPayPal) {
+          if (isPayPal || isDemo) {
             const avatarImage = document.createElement("img");
             avatarImage.src = url;
             avatarImage.alt = "";
-            avatarImage.referrerPolicy = "no-referrer";
             avatarImage.style.cssText =
               "width:100%;height:100%;object-fit:cover;border-radius:50%;";
             avatarImage.onerror = () => {
-              console.warn("PayPal avatar image failed to load");
+              console.warn(`${isPayPal ? "PayPal" : "Demo"} avatar image failed to load`);
               avatarImage.remove();
               typedRecipientAvatar.textContent = fallbackInitial;
             };
@@ -1617,6 +1624,31 @@
           }, useTikTokLookup ? 400 : 250);
         }
 
+        function showDemoRecipient(username) {
+          const normalizedUsername = username.replace(/^[@$]+/, "").trim();
+          const recipient = {
+            id: `demo-${normalizedUsername.toLowerCase()}`,
+            name: normalizedUsername,
+            cashtag: `@${normalizedUsername}`,
+            avatar: "icons/person-circle-svgrepo-com.png",
+            color: "#6c757d",
+            platform: "demo",
+            unverified: true,
+          };
+          typedRecipientData = recipient;
+          typedRecipientName.textContent = recipient.name;
+          typedRecipientHandle.textContent = " ";
+          typedRecipientContainer.classList.remove("hidden", "selected");
+          loadTypedRecipientAvatar(recipient.avatar, recipient.name, {
+            isDemo: true,
+          });
+          setSuggestedSpinnerVisible(false);
+          if (contactListEl) {
+            filterContactsOnInput(toInput ? toInput.value : "");
+            contactListEl.style.display = "block";
+          }
+        }
+
         async function runCombinedProfileLookup(rawValue) {
           const username = rawValue.trim().replace(/^[@$]+/, "");
           if (username.length < 3) {
@@ -1734,17 +1766,7 @@
           }
 
           if (!recipient) {
-            typedRecipientHandle.textContent = "No profile or PayPal image found";
-            setSuggestedSpinnerVisible(false);
-            if (contactListEl) contactListEl.style.display = "block";
-            setTimeout(() => {
-              if (
-                lookupToken === latestTikTokLookupToken &&
-                cashAppLookupToken === latestCashAppLookupToken
-              ) {
-                clearTypedRecipientPreview();
-              }
-            }, 1800);
+            showDemoRecipient(username);
             return;
           }
 
@@ -1761,6 +1783,7 @@
             isTikTok: recipient.platform === "tiktok",
             isCashApp: recipient.platform === "cashapp",
             isPayPal: recipient.platform === "paypal",
+            isDemo: recipient.platform === "demo",
           });
           setSuggestedSpinnerVisible(false);
           if (contactListEl) {
@@ -1850,28 +1873,12 @@
                 contactListEl.style.display = "block";
               }
             } else {
-              typedRecipientHandle.textContent = "Profile not found";
-              // hide spinner and restore list after a short delay
-              setSuggestedSpinnerVisible(false);
-              if (contactListEl) contactListEl.style.display = "block";
-              setTimeout(() => {
-                if (lookupToken === latestTikTokLookupToken) {
-                  clearTypedRecipientPreview();
-                }
-              }, 1400);
+              showDemoRecipient(username);
             }
           } catch (error) {
             console.error("TikTok profile lookup failed", error);
             if (lookupToken === latestTikTokLookupToken) {
-              typedRecipientHandle.textContent = "Lookup failed";
-              // hide spinner and restore list after a short delay
-              setSuggestedSpinnerVisible(false);
-              if (contactListEl) contactListEl.style.display = "block";
-              setTimeout(() => {
-                if (lookupToken === latestTikTokLookupToken) {
-                  clearTypedRecipientPreview();
-                }
-              }, 1400);
+              showDemoRecipient(username);
             }
           }
         }
@@ -1965,21 +1972,7 @@
                 runTikTokProfileLookup(`@${cashtag}`);
                 return;
               }
-              typedRecipientHandle.textContent = result.fallback ? `$${cashtag}` : "Profile not found";
-              // If fallback, still show the profile as typed
-              if (result.fallback) {
-                typedRecipientData = {
-                  id: `cashapp-${cashtag}`,
-                  name: `$${cashtag}`,
-                  cashtag: `$${cashtag}`,
-                  avatar: "",
-                  color: "#00D54B",
-                  platform: "cashapp",
-                };
-              }
-              // hide spinner and restore list
-              setSuggestedSpinnerVisible(false);
-              if (contactListEl) contactListEl.style.display = "block";
+              showDemoRecipient(cashtag);
             }
           } catch (error) {
             console.error("Cash App profile lookup failed", error);
@@ -1990,19 +1983,7 @@
                 runTikTokProfileLookup(`@${cashtag}`);
                 return;
               }
-              typedRecipientHandle.textContent = `$${cashtag}`;
-              // Still allow selection with fallback data
-              typedRecipientData = {
-                id: `cashapp-${cashtag}`,
-                name: `$${cashtag}`,
-                cashtag: `$${cashtag}`,
-                avatar: "",
-                color: "#00D54B",
-                platform: "cashapp",
-              };
-              // hide spinner and restore list
-              setSuggestedSpinnerVisible(false);
-              if (contactListEl) contactListEl.style.display = "block";
+              showDemoRecipient(cashtag);
             }
           }
         }
