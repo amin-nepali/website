@@ -2428,7 +2428,7 @@
           nm.textContent = c.name || '';
           const hd = document.createElement('div'); hd.className = 'm2-result-handle';
           const ct = c.cashtag || '';
-          hd.textContent = ct.startsWith('@') ? ct.replace(/^@/,'$') : ct;
+          hd.textContent = ct;
           info.appendChild(nm); info.appendChild(hd);
           item.appendChild(av); item.appendChild(info);
           item.addEventListener('click', () => selectContact(c));
@@ -2531,57 +2531,92 @@
       }
 
       async function enrichBothProfiles(query, baseList) {
-        // "Show both" = try Cash App first; only fall back to TikTok if Cash App
-        // returns no usable profile (no data, no full name, no avatar).
         const username = (query || '').replace(/^[$@]+/, '').trim();
-        if (username.length < 2) return;
+        if (username.length < 3) return;
         const myToken = ++m2SearchLookupToken;
-        try {
-          const cashResp = await fetch(`${API_BASE}/api/cashapp/profile/${encodeURIComponent(username)}`).then(r => r.json()).catch(() => null);
-          if (myToken !== m2SearchLookupToken) return;
-
-          // Only consider Cash App "usable" if it has a real avatar image
-          const cashOk = cashResp && cashResp.success && cashResp.data && cashResp.data.avatar;
-          if (cashOk) {
-            // Good Cash App profile — show it, skip TikTok
-            const u = (cashResp.data.username || username).toLowerCase();
-            const liveProfile = {
-              id: `cashapp-${u}`,
-              name: cashResp.data.fullName || `$${cashResp.data.username || username}`,
-              cashtag: cashResp.data.displayTag || `$${cashResp.data.username || username}`,
-              avatar: cashResp.data.avatar || '',
-              color: '#00D54B',
-              platform: 'cashapp'
-            };
-            const key = (liveProfile.cashtag || liveProfile.name || '').toLowerCase().replace(/^[$@]/, '');
-            const dedupedBase = baseList.filter(c => (c.cashtag || c.name || '').toLowerCase().replace(/^[$@]/, '') !== key);
-            renderResults([liveProfile, ...dedupedBase]);
-          } else {
-            // No Cash App profile — fall back to TikTok
-            if (myToken !== m2SearchLookupToken) return;
-            const tikResp = await fetch(`${API_BASE}/api/tiktok/profile/${encodeURIComponent(username)}`).then(r => r.json()).catch(() => null);
-            if (myToken !== m2SearchLookupToken) return;
-            if (tikResp && tikResp.success && tikResp.data) {
-              const u = (tikResp.data.username || username).toLowerCase();
-              const tiktokProfile = {
-                id: `tiktok-${u}`,
-                name: tikResp.data.nickname || `@${tikResp.data.username || username}`,
-                cashtag: `@${tikResp.data.username || username}`,
-                avatar: tikResp.data.avatar || '',
-                color: '#6c757d',
-                platform: 'tiktok'
-              };
-              const key = (tiktokProfile.cashtag || tiktokProfile.name || '').toLowerCase().replace(/^[$@]/, '');
-              const dedupedBase = baseList.filter(c => (c.cashtag || c.name || '').toLowerCase().replace(/^[$@]/, '') !== key);
-              renderResults([tiktokProfile, ...dedupedBase]);
-            } else {
-              renderResults(baseList);
-            }
+        const encodedUsername = encodeURIComponent(username);
+        const paypalAvatar = `https://unavatar.io/paypal/${encodedUsername}`;
+        const requestProfile = async (provider, endpoint) => {
+          try {
+            const response = await fetch(`${API_BASE}${endpoint}/${encodedUsername}`);
+            if (!response.ok) throw new Error(`${provider} returned ${response.status}`);
+            return await response.json();
+          } catch (error) {
+            console.warn(`${provider} lookup failed`, error);
+            return null;
           }
-        } catch (e) {
-          if (myToken !== m2SearchLookupToken) return;
-          renderResults(baseList);
+        };
+        const checkPayPalAvatar = () => new Promise(resolve => {
+          const image = new Image();
+          const timeout = setTimeout(() => {
+            image.onload = null;
+            image.onerror = null;
+            console.warn('PayPal avatar lookup timed out');
+            resolve(false);
+          }, 8000);
+          image.onload = () => {
+            clearTimeout(timeout);
+            resolve(true);
+          };
+          image.onerror = () => {
+            clearTimeout(timeout);
+            console.warn('PayPal avatar lookup did not return an image');
+            resolve(false);
+          };
+          image.src = paypalAvatar;
+        });
+
+        const [tikResp, cashResp, paypalImageAvailable] = await Promise.all([
+          requestProfile('TikTok', '/api/tiktok/profile'),
+          requestProfile('Cash App', '/api/cashapp/profile'),
+          checkPayPalAvatar()
+        ]);
+        if (myToken !== m2SearchLookupToken) return;
+
+        let liveProfile = null;
+        if (tikResp && tikResp.success && tikResp.data && tikResp.data.username) {
+          const u = String(tikResp.data.username).toLowerCase();
+          liveProfile = {
+            id: `tiktok-${u}`,
+            name: tikResp.data.nickname || `@${u}`,
+            cashtag: `@${u}`,
+            avatar: tikResp.data.avatar || '',
+            color: '#6c757d',
+            platform: 'tiktok'
+          };
+        } else if (cashResp && cashResp.success && cashResp.data && cashResp.data.username) {
+          const u = String(cashResp.data.username).toLowerCase();
+          liveProfile = {
+            id: `cashapp-${u}`,
+            name: cashResp.data.fullName || `$${u}`,
+            cashtag: cashResp.data.displayTag || `$${u}`,
+            avatar: cashResp.data.avatar || '',
+            color: '#00D54B',
+            platform: 'cashapp'
+          };
+        } else if (paypalImageAvailable) {
+          liveProfile = {
+            id: `paypal-${username}`,
+            name: username,
+            cashtag: 'PayPal image · unverified',
+            avatar: paypalAvatar,
+            color: '#0070ba',
+            platform: 'paypal',
+            unverified: true
+          };
         }
+
+        if (!liveProfile) {
+          renderResults(baseList);
+          return;
+        }
+        const key = (liveProfile.cashtag || liveProfile.name)
+          .toLowerCase()
+          .replace(/^[$@]/, '');
+        const dedupedBase = baseList.filter(c =>
+          (c.cashtag || c.name || '').toLowerCase().replace(/^[$@]/, '') !== key
+        );
+        renderResults([liveProfile, ...dedupedBase]);
       }
 
       if (searchInput) {
@@ -2600,12 +2635,12 @@
                    (c.cashtag||'').toLowerCase().replace(/^[$@]/,'').includes(q);
           });
           renderResults(filtered);
-          if (mode === 'tiktok' || raw.startsWith('@')) {
-            if (!filtered.length) showSpinner();
-            enrichWithTikTokProfile(q, filtered, true);
-          } else if (mode === 'both') {
+          if (mode === 'both') {
             if (!filtered.length) showSpinner();
             enrichBothProfiles(q, filtered);
+          } else if (mode === 'tiktok' || raw.startsWith('@')) {
+            if (!filtered.length) showSpinner();
+            enrichWithTikTokProfile(q, filtered, true);
           } else {
             if (!filtered.length) showSpinner();
             enrichWithCashAppProfile(q, filtered);
