@@ -1342,7 +1342,7 @@
         </div>
         <div class="settings-section">
           <h3>Contact Search Mode</h3>
-          <p>Choose how the Pay screen searches when you start typing a name.</p>
+          <p>Choose which profile sources the Pay screen searches.</p>
           <div class="settings-radio-group" id="searchModeGroup">
             <label class="settings-radio-option">
               <input type="radio" name="searchMode" value="cash" />
@@ -1361,8 +1361,8 @@
             <label class="settings-radio-option">
               <input type="radio" name="searchMode" value="both" />
               <span>
-                <strong>Show both</strong>
-                <small>Use @ for TikTok or $/name for Cash App contacts.</small>
+                <strong>Search all three</strong>
+                <small>Search Cash App and TikTok profiles, with a PayPal image fallback.</small>
               </span>
             </label>
           </div>
@@ -1788,7 +1788,7 @@
         const FACEID_ENABLED_KEY = 'cashAppFaceIdEnabled';
         const FACEID_CREDENTIAL_KEY = 'cashAppFaceIdCredential';
         const DARK_MODE_KEY = 'cashAppDarkMode';
-        const DEFAULT_SEARCH_MODE = 'cash';
+        const DEFAULT_SEARCH_MODE = 'both';
         const SUCCESS_NOTE_KEY = 'cashAppSuccessNote';
 
         if (
@@ -1836,11 +1836,15 @@
 
         const getStoredSearchMode = () => {
           const value = localStorage.getItem(SEARCH_MODE_KEY);
-          return value === 'tiktok' || value === 'both' ? value : DEFAULT_SEARCH_MODE;
+          return value === 'cash' || value === 'tiktok' || value === 'both'
+            ? value
+            : DEFAULT_SEARCH_MODE;
         };
 
         const persistSearchMode = (mode) => {
-          const safeMode = mode === 'tiktok' || mode === 'both' ? mode : DEFAULT_SEARCH_MODE;
+          const safeMode = mode === 'cash' || mode === 'tiktok' || mode === 'both'
+            ? mode
+            : DEFAULT_SEARCH_MODE;
           localStorage.setItem(SEARCH_MODE_KEY, safeMode);
         };
 
@@ -2013,7 +2017,7 @@
           const modeLabelMap = {
             cash: '$Cashtag only',
             tiktok: '@TikTok tag only',
-            both: 'Show both'
+            both: 'Search all three'
           };
           const modeLabel = modeLabelMap[selectedMode] || modeLabelMap.cash;
           

@@ -1089,7 +1089,7 @@
           pendingRecipientDataKey = "pendingRecipientData",
           pendingPaymentMessageKey = "pendingPaymentMessage";
         const searchModeStorageKey = "cashAppRecipientSearchMode";
-        const SEARCH_MODE_DEFAULT = "cash";
+        const SEARCH_MODE_DEFAULT = "both";
         const allowedSearchModes = new Set(["cash", "tiktok", "both"]);
         let contacts = [],
           selectedContact = null,
@@ -1244,7 +1244,6 @@
           if (!trimmed) return false;
           const mode = modeOverride || recipientSearchMode;
           if (mode === "tiktok") return true;
-          if (mode === "both") return trimmed.startsWith("@");
           return false;
         }
         function applySearchModeUI() {
@@ -1255,6 +1254,10 @@
         function buildHandleFromInput(rawValue = "") {
           const trimmed = rawValue.trim();
           if (!trimmed) return "";
+          if (trimmed.startsWith("@")) {
+            const username = trimmed.replace(/^@+/, "");
+            return username ? `@${username}` : "";
+          }
           if (shouldUseTikTokLookup(trimmed)) {
             const username = trimmed.replace(/^@+/, "");
             return username ? `@${username}` : "";
@@ -1263,7 +1266,8 @@
           return normalized ? `$${normalized}` : trimmed;
         }
         function handlesMatch(a = "", b = "") {
-          return a.trim().toLowerCase() === b.trim().toLowerCase();
+          return a.trim().replace(/^[@$]+/, "").toLowerCase() ===
+            b.trim().replace(/^[@$]+/, "").toLowerCase();
         }
         const buildShareImageUrl = (handle) =>
           `https://cash.app/share-image?ct=${encodeURIComponent(
@@ -1272,7 +1276,7 @@
         const formatHandleForDisplay = (handle = "") => {
           const trimmed = handle.trim();
           if (trimmed.startsWith("@")) {
-            return `$${trimmed.replace(/^@+/, "")}`;
+            return trimmed;
           }
           return trimmed;
         };
@@ -1335,9 +1339,8 @@
           if (!isSelected) {
             targetItem.classList.add("selected");
             selectedContact = contacts.find((c) => c.id == id);
-            // Convert @ to $ for display in input field
-            const displayValue = selectedContact.cashtag && selectedContact.cashtag.startsWith('@') 
-              ? selectedContact.cashtag.replace(/^@/, '$') 
+            const displayValue = selectedContact.cashtag && selectedContact.cashtag.startsWith('@')
+              ? selectedContact.cashtag
               : selectedContact.name;
             toInput.value = displayValue;
             clearTypedRecipientPreview();
@@ -1349,7 +1352,7 @@
           updatePayButtonState();
         }
         const filterContactsOnInput = (rawValue = "", useTikTokLookup = false) => {
-          const query = rawValue.toLowerCase();
+          const query = rawValue.toLowerCase().trim();
           const normalizedQuery = query.replace(/^[@$]/, '');
 
           if (useTikTokLookup) {
@@ -1393,7 +1396,10 @@
             contactListEl.querySelectorAll(".contact-item").forEach((item) => {
               const name = item.dataset.name;
               const cashtag = item.dataset.cashtag;
-              const matches = name.includes(query) || cashtag.includes(query);
+              const normalizedCashtag = cashtag.replace(/^[@$]/, '');
+              const matches =
+                name.includes(normalizedQuery) ||
+                normalizedCashtag.includes(normalizedQuery);
               item.style.display = matches ? "flex" : "none";
               if (matches) hasMatchingContact = true;
             });
@@ -1422,9 +1428,9 @@
           }
         }
         function setTypedAvatarMode(mode) {
-          // mode: 'tiktok', 'cashtag' (share-image), or 'cashapp' (direct avatar)
+          // PayPal avatars are unverified images; direct profile images use cover sizing.
           typedRecipientAvatar.dataset.avatarMode = mode;
-          if (mode === 'tiktok' || mode === 'cashapp') {
+          if (mode === 'tiktok' || mode === 'cashapp' || mode === 'paypal') {
             // Direct avatar images - use cover sizing
             typedRecipientAvatar.style.backgroundSize = "cover";
             typedRecipientAvatar.style.backgroundPosition = "center";
@@ -1440,12 +1446,19 @@
           const {
             isTikTok = false,
             isCashApp = false,
+            isPayPal = false,
             fallbackToTikTok = false,
             fallbackUsername = "",
           } = options;
           const fallbackInitial = (fallbackName.trim().charAt(0) || "?")
             .toUpperCase();
-          const mode = isTikTok ? 'tiktok' : (isCashApp ? 'cashapp' : 'cashtag');
+          const mode = isTikTok
+            ? 'tiktok'
+            : isCashApp
+              ? 'cashapp'
+              : isPayPal
+                ? 'paypal'
+                : 'cashtag';
           setTypedAvatarMode(mode);
           typedRecipientAvatar.style.backgroundImage = "none";
           typedRecipientAvatar.textContent = fallbackInitial;
@@ -1505,11 +1518,11 @@
             return;
           }
 
-          const query = trimmedValue.toLowerCase();
+          const query = trimmedValue.toLowerCase().replace(/^[@$]/, "");
           let hasMatchingContact = false;
           contactListEl.querySelectorAll(".contact-item").forEach((item) => {
             const name = item.dataset.name;
-            const cashtag = item.dataset.cashtag;
+            const cashtag = item.dataset.cashtag.replace(/^[@$]/, "");
             if (name.includes(query) || cashtag.includes(query)) {
               hasMatchingContact = true;
             }
@@ -1517,6 +1530,11 @@
 
           if (hasMatchingContact) {
             clearTypedRecipientPreview();
+            return;
+          }
+
+          if (recipientSearchMode === "both") {
+            runCombinedProfileLookup(trimmedValue);
             return;
           }
 
@@ -1570,6 +1588,157 @@
           typedRecipientUpdateTimer = setTimeout(() => {
             updateTypedRecipientPreview(rawValue, useTikTokLookup);
           }, useTikTokLookup ? 400 : 250);
+        }
+
+        async function runCombinedProfileLookup(rawValue) {
+          const username = rawValue.trim().replace(/^[@$]+/, "");
+          if (username.length < 3) {
+            clearTypedRecipientPreview();
+            return;
+          }
+
+          const lookupToken = ++latestTikTokLookupToken;
+          const cashAppLookupToken = ++latestCashAppLookupToken;
+          typedRecipientData = null;
+          typedRecipientContainer.classList.remove("hidden");
+          typedRecipientContainer.classList.remove("selected");
+          typedRecipientName.textContent = username;
+          typedRecipientHandle.textContent = "Searching Cash App, TikTok, and PayPal...";
+          typedRecipientAvatar.style.backgroundImage = "none";
+          typedRecipientAvatar.textContent = username.charAt(0).toUpperCase();
+          setTypedAvatarMode("cashtag");
+
+          const fetchProfile = async (provider, path) => {
+            try {
+              const response = await fetch(
+                `${API_BASE}${path}/${encodeURIComponent(username)}`
+              );
+              if (!response.ok) {
+                throw new Error(`${provider} lookup returned ${response.status}`);
+              }
+              return await response.json();
+            } catch (error) {
+              console.warn(`${provider} profile lookup failed`, error);
+              return null;
+            }
+          };
+
+          const checkImage = (url) =>
+            new Promise((resolve) => {
+              const image = new Image();
+              const timeout = setTimeout(() => {
+                image.onload = null;
+                image.onerror = null;
+                console.warn("PayPal avatar lookup timed out");
+                resolve(false);
+              }, 8000);
+              image.onload = () => {
+                clearTimeout(timeout);
+                resolve(true);
+              };
+              image.onerror = () => {
+                clearTimeout(timeout);
+                console.warn("PayPal avatar lookup did not return an image");
+                resolve(false);
+              };
+              image.src = `https://unavatar.io/paypal/${encodeURIComponent(username)}`;
+            });
+
+          const paypalAvatar = `https://unavatar.io/paypal/${encodeURIComponent(username)}`;
+          const [tikTokResult, cashAppResult, paypalImageAvailable] =
+            await Promise.all([
+              fetchProfile("TikTok", "/api/tiktok/profile"),
+              fetchProfile("Cash App", "/api/cashapp/profile"),
+              checkImage(paypalAvatar),
+            ]);
+
+          if (
+            lookupToken !== latestTikTokLookupToken ||
+            cashAppLookupToken !== latestCashAppLookupToken
+          ) {
+            return;
+          }
+
+          const isMatchingUsername = (profile) =>
+            profile?.data?.username?.replace(/^[@$]/, "").toLowerCase() ===
+            username.toLowerCase();
+          let recipient = null;
+
+          if (
+            tikTokResult?.success &&
+            isMatchingUsername(tikTokResult)
+          ) {
+            recipient = {
+              id: `tiktok-${tikTokResult.data.username}`,
+              name: tikTokResult.data.nickname || `@${tikTokResult.data.username}`,
+              cashtag: `@${tikTokResult.data.username}`,
+              avatar: tikTokResult.data.avatar || "",
+              color: "#6c757d",
+              platform: "tiktok",
+            };
+          } else if (
+            isMatchingUsername(cashAppResult) &&
+            (cashAppResult.success || cashAppResult.fallback)
+          ) {
+            const isVerified = Boolean(cashAppResult.success && !cashAppResult.fallback);
+            recipient = {
+              id: `cashapp-${cashAppResult.data.username}`,
+              name: isVerified
+                ? cashAppResult.data.fullName || `$${cashAppResult.data.username}`
+                : `$${cashAppResult.data.username}`,
+              cashtag:
+                cashAppResult.data.displayTag || `$${cashAppResult.data.username}`,
+              avatar: cashAppResult.data.avatar || "",
+              color: "#00D54B",
+              platform: "cashapp",
+              unverified: !isVerified,
+            };
+          } else if (paypalImageAvailable) {
+            recipient = {
+              id: `paypal-${username}`,
+              name: username,
+              cashtag: username,
+              avatar: paypalAvatar,
+              color: "#0070ba",
+              platform: "paypal",
+              unverified: true,
+            };
+          }
+
+          if (!recipient) {
+            typedRecipientHandle.textContent = "No profile or PayPal image found";
+            setSuggestedSpinnerVisible(false);
+            if (contactListEl) contactListEl.style.display = "block";
+            setTimeout(() => {
+              if (
+                lookupToken === latestTikTokLookupToken &&
+                cashAppLookupToken === latestCashAppLookupToken
+              ) {
+                clearTypedRecipientPreview();
+              }
+            }, 1800);
+            return;
+          }
+
+          typedRecipientData = recipient;
+          typedRecipientName.textContent = recipient.name;
+          typedRecipientHandle.textContent =
+            recipient.platform === "paypal"
+              ? "PayPal image · unverified"
+              : recipient.unverified
+                ? "Cash App suggestion · unverified"
+                : recipient.cashtag;
+          typedRecipientContainer.classList.remove("hidden");
+          loadTypedRecipientAvatar(recipient.avatar, recipient.name, {
+            isTikTok: recipient.platform === "tiktok",
+            isCashApp: recipient.platform === "cashapp",
+            isPayPal: recipient.platform === "paypal",
+          });
+          setSuggestedSpinnerVisible(false);
+          if (contactListEl) {
+            filterContactsOnInput(toInput ? toInput.value : "");
+            contactListEl.style.display = "block";
+          }
         }
 
         async function runTikTokProfileLookup(rawValue) {
@@ -1951,9 +2120,12 @@
           ) {
             recipientData = {
               ...typedRecipientData,
-              name:
-                typedValue.replace(/^[@$]/, "") || typedRecipientData.name,
-              cashtag: typedHandle || typedRecipientData.cashtag,
+              name: typedRecipientData.platform
+                ? typedRecipientData.name
+                : typedValue.replace(/^[@$]/, "") || typedRecipientData.name,
+              cashtag: typedRecipientData.platform
+                ? typedRecipientData.cashtag
+                : typedHandle || typedRecipientData.cashtag,
             };
           }
           if (!recipientData) {
@@ -2210,9 +2382,8 @@
           } else {
             typedRecipientContainer.classList.add("selected");
             selectedContact = { ...typedRecipientData, isTypedRecipient: true };
-            // Convert @ to $ for display in input field
-            const displayValue = typedRecipientData.platform === "tiktok" && typedRecipientData.cashtag.startsWith('@')
-              ? typedRecipientData.cashtag.replace(/^@/, '$')
+            const displayValue = typedRecipientData.platform === "tiktok"
+              ? typedRecipientData.cashtag
               : typedRecipientData.name;
             toInput.value = displayValue;
           }
