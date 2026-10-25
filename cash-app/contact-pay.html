@@ -2207,7 +2207,7 @@
         function getSuccessNote() {
           const stored = localStorage.getItem(successNoteKey);
           if (stored === null) {
-            return "Payment arrives within 12 hours.";
+            return " ";
           }
           return stored.trim();
         }
