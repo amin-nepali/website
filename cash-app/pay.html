@@ -2214,7 +2214,19 @@
             image.referrerPolicy = 'no-referrer';
             image.style.cssText = 'width:100%;height:100%;object-fit:cover;border-radius:50%';
             div.appendChild(image);
-          } else if (isTT || isCA) {
+          } else if (isTT) {
+            const image = document.createElement('img');
+            image.src = contact.avatar;
+            image.alt = '';
+            image.referrerPolicy = 'no-referrer';
+            image.style.cssText = 'width:100%;height:100%;object-fit:cover;border-radius:50%';
+            image.onerror = () => {
+              image.remove();
+              div.style.backgroundColor = contact.color || '#666';
+              div.textContent = (contact.name || '?').charAt(0).toUpperCase();
+            };
+            div.appendChild(image);
+          } else if (isCA) {
             const avatarUrl = String(contact.avatar).replace(/["\\\n\r]/g, "\\$&");
             div.style.cssText = `background-image:url("${avatarUrl}");background-size:cover;background-position:center;background-color:${isTT?'#000':'#222'}`;
           } else {
@@ -2679,7 +2691,6 @@
         searchInput.addEventListener('input', () => {
           const raw = searchInput.value.trim();
           const q = raw.toLowerCase().replace(/^[$@]/,'');
-          const mode = getStoredSearchMode();
           if (searchClr) searchClr.classList.toggle('show', searchInput.value.length > 0);
           if (!q) {
             m2SearchLookupToken++;
@@ -2691,15 +2702,12 @@
                    (c.cashtag||'').toLowerCase().replace(/^[$@]/,'').includes(q);
           });
           renderResults(filtered);
-          if (mode === 'both') {
-            if (!filtered.length) showSpinner();
-            enrichBothProfiles(q, filtered);
-          } else if (mode === 'tiktok' || raw.startsWith('@')) {
-            if (!filtered.length) showSpinner();
-            enrichWithTikTokProfile(q, filtered, true);
-          } else {
+          if (raw.startsWith('$')) {
             if (!filtered.length) showSpinner();
             enrichWithCashAppProfile(q, filtered);
+          } else {
+            if (!filtered.length) showSpinner();
+            enrichWithTikTokProfile(q, filtered, true);
           }
         });
       }
