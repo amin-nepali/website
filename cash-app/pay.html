@@ -1784,7 +1784,8 @@
         const successNoteInput = document.getElementById('successNoteInput');
         const BALANCE_STORAGE_KEY = 'cashAppBalance';
         const BALANCE_COOKIE_KEY = 'cashAppBalance';
-        const SEARCH_MODE_KEY = 'cashAppRecipientSearchMode';
+        const SEARCH_MODE_KEY = 'cashAppRecipientSearchModeV2';
+        const LEGACY_SEARCH_MODE_KEY = 'cashAppRecipientSearchMode';
         const FACEID_ENABLED_KEY = 'cashAppFaceIdEnabled';
         const FACEID_CREDENTIAL_KEY = 'cashAppFaceIdCredential';
         const DARK_MODE_KEY = 'cashAppDarkMode';
@@ -1836,9 +1837,15 @@
 
         const getStoredSearchMode = () => {
           const value = localStorage.getItem(SEARCH_MODE_KEY);
-          return value === 'cash' || value === 'tiktok' || value === 'both'
-            ? value
+          if (value === 'cash' || value === 'tiktok' || value === 'both') {
+            return value;
+          }
+          const legacyValue = localStorage.getItem(LEGACY_SEARCH_MODE_KEY);
+          const migratedValue = legacyValue === 'tiktok'
+            ? 'tiktok'
             : DEFAULT_SEARCH_MODE;
+          localStorage.setItem(SEARCH_MODE_KEY, migratedValue);
+          return migratedValue;
         };
 
         const persistSearchMode = (mode) => {
@@ -2146,7 +2153,8 @@
       const MODE_KEY     = 'cashAppPayMode';
       const CONTACT_KEY  = 'cashAppContacts';
       const BALANCE_KEY  = 'cashAppBalance';
-      const SEARCH_MODE_KEY = 'cashAppRecipientSearchMode';
+      const SEARCH_MODE_KEY = 'cashAppRecipientSearchModeV2';
+      const LEGACY_SEARCH_MODE_KEY = 'cashAppRecipientSearchMode';
       const RECENT_KEY = 'cashAppRecentRecipientsMode2';
 
       /* ── Mode selector ── */
@@ -2199,10 +2207,19 @@
         div.className = cls;
         if (contact.avatar) {
           const isTT = isTikTok(contact), isCA = isCashApp(contact);
-          if (isTT || isCA) {
-            div.style.cssText = `background-image:url('%24%7bcontact.avatar%7d.html');background-size:cover;background-position:center;background-color:${isTT?'#000':'#222'}`;
+          if (contact.platform === 'paypal') {
+            const image = document.createElement('img');
+            image.src = contact.avatar;
+            image.alt = '';
+            image.referrerPolicy = 'no-referrer';
+            image.style.cssText = 'width:100%;height:100%;object-fit:cover;border-radius:50%';
+            div.appendChild(image);
+          } else if (isTT || isCA) {
+            const avatarUrl = String(contact.avatar).replace(/["\\\n\r]/g, "\\$&");
+            div.style.cssText = `background-image:url("${avatarUrl}");background-size:cover;background-position:center;background-color:${isTT?'#000':'#222'}`;
           } else {
-            div.style.cssText = `background-image:url('%24%7bcontact.avatar%7d.html');background-size:725%;background-position:center 22%`;
+            const avatarUrl = String(contact.avatar).replace(/["\\\n\r]/g, "\\$&");
+            div.style.cssText = `background-image:url("${avatarUrl}");background-size:725%;background-position:center 22%`;
           }
         } else {
           div.style.backgroundColor = contact.color || '#666';
@@ -2282,7 +2299,13 @@
 
       function getStoredSearchMode() {
         const mode = localStorage.getItem(SEARCH_MODE_KEY);
-        return mode === 'cash' || mode === 'tiktok' || mode === 'both' ? mode : 'cash';
+        if (mode === 'cash' || mode === 'tiktok' || mode === 'both') {
+          return mode;
+        }
+        const legacyMode = localStorage.getItem(LEGACY_SEARCH_MODE_KEY);
+        const migratedMode = legacyMode === 'tiktok' ? 'tiktok' : 'both';
+        localStorage.setItem(SEARCH_MODE_KEY, migratedMode);
+        return migratedMode;
       }
 
       function getRecentRecipients() {

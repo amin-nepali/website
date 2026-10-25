@@ -1088,7 +1088,8 @@
           paymentAmountKey = "paymentAmount",
           pendingRecipientDataKey = "pendingRecipientData",
           pendingPaymentMessageKey = "pendingPaymentMessage";
-        const searchModeStorageKey = "cashAppRecipientSearchMode";
+        const searchModeStorageKey = "cashAppRecipientSearchModeV2";
+        const legacySearchModeStorageKey = "cashAppRecipientSearchMode";
         const SEARCH_MODE_DEFAULT = "both";
         const allowedSearchModes = new Set(["cash", "tiktok", "both"]);
         let contacts = [],
@@ -1237,7 +1238,12 @@
         };
         function getStoredSearchMode() {
           const stored = localStorage.getItem(searchModeStorageKey);
-          return allowedSearchModes.has(stored) ? stored : SEARCH_MODE_DEFAULT;
+          if (allowedSearchModes.has(stored)) return stored;
+          const legacyStored = localStorage.getItem(legacySearchModeStorageKey);
+          const migratedStored =
+            legacyStored === "tiktok" ? "tiktok" : SEARCH_MODE_DEFAULT;
+          localStorage.setItem(searchModeStorageKey, migratedStored);
+          return migratedStored;
         }
         function shouldUseTikTokLookup(rawValue = "", modeOverride) {
           const trimmed = rawValue.trim();
@@ -1304,14 +1310,20 @@
               const contactName = contact.name || "";
               const contactCashtag = contact.cashtag || "";
               const hasAvatarImage = Boolean(contact.avatar);
+              const avatarUrl = String(contact.avatar || "")
+                .replace(/&/g, "&amp;")
+                .replace(/"/g, "%22")
+                .replace(/'/g, "%27")
+                .replace(/</g, "%3C")
+                .replace(/>/g, "%3E");
               const fallbackColor = contact.color || "#666666";
               const isTikTokContact = hasAvatarImage && isTikTokProfile(contact);
               const isCashAppContact = hasAvatarImage && isCashAppProfile(contact);
               // Use cover sizing for TikTok and CashApp direct avatars, zoom for share-image URLs
               const avatarStyles = hasAvatarImage
                 ? (isTikTokContact || isCashAppContact)
-                  ? `background-image: url('%24%7bcontact.avatar%7d.html'); background-size: cover; background-position: center; background-color: ${isTikTokContact ? '#000000' : '#222222'};`
-                  : `background-image: url('%24%7bcontact.avatar%7d.html'); background-size: 725%; background-position: center 22%;`
+                  ? `background-image: url('${avatarUrl}'); background-size: cover; background-position: center; background-color: ${isTikTokContact ? '#000000' : '#222222'};`
+                  : `background-image: url('${avatarUrl}'); background-size: 725%; background-position: center 22%;`
                 : `background-color:${fallbackColor};`;
               const avatarContent = hasAvatarImage
                 ? `<div class="avatar${
@@ -1463,6 +1475,21 @@
           typedRecipientAvatar.style.backgroundImage = "none";
           typedRecipientAvatar.textContent = fallbackInitial;
           if (!url) return;
+          if (isPayPal) {
+            const avatarImage = document.createElement("img");
+            avatarImage.src = url;
+            avatarImage.alt = "";
+            avatarImage.referrerPolicy = "no-referrer";
+            avatarImage.style.cssText =
+              "width:100%;height:100%;object-fit:cover;border-radius:50%;";
+            avatarImage.onerror = () => {
+              console.warn("PayPal avatar image failed to load");
+              avatarImage.remove();
+              typedRecipientAvatar.textContent = fallbackInitial;
+            };
+            typedRecipientAvatar.appendChild(avatarImage);
+            return;
+          }
           const previewImage = new Image();
           previewImage.onload = () => {
             typedRecipientAvatar.style.backgroundImage = `url("${url}")`;
@@ -1626,6 +1653,7 @@
           const checkImage = (url) =>
             new Promise((resolve) => {
               const image = new Image();
+              image.referrerPolicy = "no-referrer";
               const timeout = setTimeout(() => {
                 image.onload = null;
                 image.onerror = null;
@@ -1999,7 +2027,7 @@
         const closeEditModal = () => editOverlay.classList.remove("show");
         function updateEditAvatar() {
           if (editingContact.avatar) {
-            editAvatar.style.backgroundImage = `url(%24%7beditingContact.avatar%7d.html)`;
+            editAvatar.style.backgroundImage = `url("${String(editingContact.avatar).replace(/["\\\n\r]/g, "\\$&")}")`;
             editAvatar.innerHTML = "";
           } else {
             editAvatar.style.backgroundImage = "none";
